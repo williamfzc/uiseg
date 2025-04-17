@@ -1,0 +1,157 @@
+import cv2
+import numpy as np
+from pydantic import BaseModel
+
+class UISegConfig(BaseModel):
+    min_length: int = 10  # Minimum width/height of a region to be considered (in pixels)
+    max_area_ratio: float = 0.4  # Maximum allowed area ratio of a region relative to the image
+    adaptive_block_size: int = 11  # Block size for adaptive thresholding (must be odd)
+    adaptive_C: int = 2  # Constant subtracted from mean in adaptive thresholding
+    morph_kernel_size: int = 3  # Kernel size for morphological dilation (in pixels)
+    morph_iterations: int = 1  # Number of iterations for morphological dilation
+    merge_max_gap: int = 15  # Maximum horizontal gap (in pixels) to merge adjacent regions
+    merge_min_overlap_ratio: float = 0.5  # Minimum vertical overlap ratio to merge adjacent regions
+
+class UISeg:
+    def __init__(self, config: UISegConfig = UISegConfig()):
+        self.config = config
+
+    def process_image(self, image_path: str, show: bool = False):
+        # Read the input image
+        image = cv2.imread(image_path)
+        # Convert to grayscale
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        # Apply adaptive thresholding to get binary image
+        binary = cv2.adaptiveThreshold(
+            gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY_INV, self.config.adaptive_block_size, self.config.adaptive_C
+        )
+
+        # Morphological dilation to connect regions
+        kernel = np.ones((self.config.morph_kernel_size, self.config.morph_kernel_size), np.uint8)
+        binary = cv2.dilate(binary, kernel, iterations=self.config.morph_iterations)
+
+        # Connected components analysis to find candidate regions
+        num_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(binary, connectivity=8)
+        raw_regions = []
+        for i in range(1, num_labels):
+            x, y, w, h, area = stats[i]
+            raw_regions.append((x, y, w, h, area))
+
+        # Filter regions by size and area ratio
+        img_area = image.shape[0] * image.shape[1]
+        filtered = []
+        for x, y, w, h, _ in raw_regions:
+            area = w * h
+            if w < self.config.min_length or h < self.config.min_length:
+                continue
+            if area / img_area > self.config.max_area_ratio:
+                continue
+            filtered.append((x, y, w, h, area))
+
+        # Remove regions that are inside other regions
+        def is_inside(r1, r2):
+            x1, y1, w1, h1, _ = r1
+            x2, y2, w2, h2, _ = r2
+            return x1 >= x2 and y1 >= y2 and x1 + w1 <= x2 + w2 and y1 + h1 <= y2 + h2
+
+        keep = []
+        for i, r1 in enumerate(filtered):
+            inside = False
+            for j, r2 in enumerate(filtered):
+                if i != j and is_inside(r1, r2):
+                    inside = True
+                    break
+            if not inside:
+                keep.append(r1)
+
+        # Prepare region list for merging
+        regions = [(x, y, w, h) for x, y, w, h, area in keep]
+
+        # Define merging criteria for horizontally adjacent regions
+        def can_merge(r1, r2, max_gap=None, min_overlap_ratio=None):
+            if max_gap is None:
+                max_gap = self.config.merge_max_gap
+            if min_overlap_ratio is None:
+                min_overlap_ratio = self.config.merge_min_overlap_ratio
+            x1, y1, w1, h1 = r1
+            x2, y2, w2, h2 = r2
+            y_top = max(y1, y2)
+            y_bot = min(y1 + h1, y2 + h2)
+            overlap = max(0, y_bot - y_top)
+            min_h = min(h1, h2)
+            if min_h == 0:
+                return False
+            overlap_ratio = overlap / min_h
+            if x2 > x1:
+                gap = x2 - (x1 + w1)
+                x_gap_start = x1 + w1
+                x_gap_end = x2
+            else:
+                gap = x1 - (x2 + w2)
+                x_gap_start = x2 + w2
+                x_gap_end = x1
+            if not (0 <= gap <= max_gap and overlap_ratio >= min_overlap_ratio):
+                return False
+
+            # Check if the gap between regions is mostly white (background)
+            if x_gap_end > x_gap_start and overlap > 0:
+                y_start = y_top
+                y_end = y_bot
+                gap_roi = binary[y_start:y_end, x_gap_start:x_gap_end]
+                if gap_roi.size > 0:
+                    white_ratio = np.mean(gap_roi > 0)
+                    if white_ratio > 0.6:
+                        return False
+
+            # Check edge strength to avoid merging strong separated regions
+            def edge_strength(region):
+                x, y, w, h = region
+                roi = binary[y:y+h, x:x+w]
+                left_edge = roi[:, :2]
+                right_edge = roi[:, -2:]
+                left_ratio = np.mean(left_edge > 0)
+                right_ratio = np.mean(right_edge > 0)
+                return left_ratio, right_ratio
+                
+            r1_right, _ = edge_strength(r1)
+            _, r2_left = edge_strength(r2)
+            if r1_right > 0.6 and r2_left > 0.6:
+                return False
+            return True
+
+        # Sort regions by x coordinate for merging
+        regions.sort(key=lambda r: r[0])
+        merged = []
+        used = [False] * len(regions)
+        for i in range(len(regions)):
+            if used[i]:
+                continue
+            x, y, w, h = regions[i]
+            cur = [x, y, w, h]
+            for j in range(i + 1, len(regions)):
+                if used[j]:
+                    continue
+                if can_merge(cur, regions[j]):
+                    nx, ny, nw, nh = regions[j]
+                    x1 = min(cur[0], nx)
+                    y1 = min(cur[1], ny)
+                    x2 = max(cur[0] + cur[2], nx + nw)
+                    y2 = max(cur[1] + cur[3], ny + nh)
+                    cur = [x1, y1, x2 - x1, y2 - y1]
+                    used[j] = True
+            merged.append(tuple(cur))
+            used[i] = True
+        regions = merged
+
+        # Optionally show the detected regions on the image
+        if show:
+            result = image.copy()
+            for (x, y, w, h) in regions:
+                cv2.rectangle(result, (x, y), (x + w, y + h), (0, 255, 0), 2)
+            cv2.imshow("Detected Regions", result)
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
+
+        return regions
