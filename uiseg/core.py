@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 from pydantic import BaseModel
 
+
 class UISegConfig(BaseModel):
     min_length: int = 10  # Minimum width/height of a region to be considered (in pixels)
     max_area_ratio: float = 0.4  # Maximum allowed area ratio of a region relative to the image
@@ -12,13 +13,12 @@ class UISegConfig(BaseModel):
     merge_max_gap: int = 15  # Maximum horizontal gap (in pixels) to merge adjacent regions
     merge_min_overlap_ratio: float = 0.5  # Minimum vertical overlap ratio to merge adjacent regions
 
+
 class UISeg:
     def __init__(self, config: UISegConfig = UISegConfig()):
         self.config = config
 
-    def process_image(self, image_path: str, show: bool = False):
-        # Read the input image
-        image = cv2.imread(image_path)
+    def process_image(self, image: np.ndarray, show: bool = False):
         # Convert to grayscale
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -108,13 +108,13 @@ class UISeg:
             # Check edge strength to avoid merging strong separated regions
             def edge_strength(region):
                 x, y, w, h = region
-                roi = binary[y:y+h, x:x+w]
+                roi = binary[y:y + h, x:x + w]
                 left_edge = roi[:, :2]
                 right_edge = roi[:, -2:]
                 left_ratio = np.mean(left_edge > 0)
                 right_ratio = np.mean(right_edge > 0)
                 return left_ratio, right_ratio
-                
+
             r1_right, _ = edge_strength(r1)
             _, r2_left = edge_strength(r2)
             if r1_right > 0.6 and r2_left > 0.6:
@@ -155,3 +155,7 @@ class UISeg:
             cv2.destroyAllWindows()
 
         return regions
+
+    def process_image_file(self, image_path: str, *args, **kwargs):
+        image = cv2.imread(image_path)
+        return self.process_image(image, *args, **kwargs)
