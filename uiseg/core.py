@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 from pydantic import BaseModel
+from PIL import Image, ImageDraw
 
 
 class UISegConfig(BaseModel):
@@ -71,12 +72,14 @@ class UISeg:
 
         # Define merging criteria for horizontally adjacent regions
         def can_merge(r1, r2, max_gap=None, min_overlap_ratio=None):
+            x1, y1, w1, h1 = r1
+            x2, y2, w2, h2 = r2
+            if not (x1 + w1 <= x2 or x2 + w2 <= x1 or y1 + h1 <= y2 or y2 + h2 <= y1):
+                return True
             if max_gap is None:
                 max_gap = self.config.merge_max_gap
             if min_overlap_ratio is None:
                 min_overlap_ratio = self.config.merge_min_overlap_ratio
-            x1, y1, w1, h1 = r1
-            x2, y2, w2, h2 = r2
             y_top = max(y1, y2)
             y_bot = min(y1 + h1, y2 + h2)
             overlap = max(0, y_bot - y_top)
@@ -147,12 +150,12 @@ class UISeg:
 
         # Optionally show the detected regions on the image
         if show:
-            result = image.copy()
-            for (x, y, w, h) in regions:
-                cv2.rectangle(result, (x, y), (x + w, y + h), (0, 255, 0), 2)
-            cv2.imshow("Detected Regions", result)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+            pil_img = Image.fromarray(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(pil_img)
+            for idx, (x, y, w, h) in enumerate(regions):
+                draw.rectangle([x, y, x + w, y + h], outline=(0, 255, 0), width=2)
+                draw.text((x, y), str(idx + 1), fill=(255, 0, 0))
+            pil_img.show()
 
         return regions
 
