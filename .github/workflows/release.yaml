@@ -1,4 +1,4 @@
-name: Release MCP Package
+name: Release Pypi Package
 
 on:
   workflow_dispatch:
