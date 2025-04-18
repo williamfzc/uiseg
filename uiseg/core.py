@@ -9,19 +9,19 @@ class UISegConfig(BaseModel):
     Configuration for UISeg.
     
     Attributes:
-        min_length (int): Minimum width/height of a region to be considered (in pixels)
+        min_length_ratio (float): Ratio of minimum width/height to image size
         max_area_ratio (float): Maximum allowed area ratio of a region relative to the image
-        merge_max_gap (int): Maximum horizontal gap (in pixels) to merge adjacent regions
-        merge_min_overlap_ratio (float): Minimum vertical overlap ratio to merge adjacent regions
+        merge_max_gap_ratio (float): Ratio of maximum horizontal gap to image width for merging
+        merge_min_overlap_ratio (float): Minimum vertical overlap ratio for merging adjacent regions
         adaptive_block_size (int): Block size for adaptive thresholding (must be odd)
         adaptive_C (int): Constant subtracted from mean in adaptive thresholding
-        morph_kernel_size (int): Kernel size for morphological dilation (in pixels)
-        morph_iterations (int): Number of iterations for morphological dilation
+        morph_kernel_size (int): Kernel size for morphological operations
+        morph_iterations (int): Number of iterations for morphological operations
     """
 
-    min_length: int = 10
+    min_length_ratio: float = 0.005
     max_area_ratio: float = 0.4
-    merge_max_gap: int = 15
+    merge_max_gap_ratio: float = 0.005
     merge_min_overlap_ratio: float = 0.5
 
     # internal
@@ -60,10 +60,13 @@ class UISeg:
 
         # Filter regions by size and area ratio
         img_area = image.shape[0] * image.shape[1]
+        img_h, img_w = image.shape[:2]
+        min_length = int(min(img_w, img_h) * self.config.min_length_ratio)
+        merge_max_gap = int(img_w * self.config.merge_max_gap_ratio)
         filtered = []
         for x, y, w, h, _ in raw_regions:
             area = w * h
-            if w < self.config.min_length or h < self.config.min_length:
+            if w < min_length or h < min_length:
                 continue
             if area / img_area > self.config.max_area_ratio:
                 continue
@@ -95,7 +98,7 @@ class UISeg:
             if not (x1 + w1 <= x2 or x2 + w2 <= x1 or y1 + h1 <= y2 or y2 + h2 <= y1):
                 return True
             if max_gap is None:
-                max_gap = self.config.merge_max_gap
+                max_gap = merge_max_gap
             if min_overlap_ratio is None:
                 min_overlap_ratio = self.config.merge_min_overlap_ratio
             y_top = max(y1, y2)

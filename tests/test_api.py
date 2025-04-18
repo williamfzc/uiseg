@@ -4,10 +4,12 @@ import cv2
 
 pic = pathlib.Path(__file__).parent / "demo.png"
 
+
 def test_api_file():
     s = UISeg()
-    locations_file = s.process_image_file(pic.as_posix(), show=True)
+    locations_file = s.process_image_file(pic.as_posix(), show=False)
     assert locations_file
+
 
 def test_api():
     s = UISeg()
