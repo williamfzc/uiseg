@@ -5,14 +5,30 @@ from PIL import Image, ImageDraw
 
 
 class UISegConfig(BaseModel):
-    min_length: int = 10  # Minimum width/height of a region to be considered (in pixels)
-    max_area_ratio: float = 0.4  # Maximum allowed area ratio of a region relative to the image
-    adaptive_block_size: int = 11  # Block size for adaptive thresholding (must be odd)
-    adaptive_C: int = 2  # Constant subtracted from mean in adaptive thresholding
-    morph_kernel_size: int = 3  # Kernel size for morphological dilation (in pixels)
-    morph_iterations: int = 1  # Number of iterations for morphological dilation
-    merge_max_gap: int = 15  # Maximum horizontal gap (in pixels) to merge adjacent regions
-    merge_min_overlap_ratio: float = 0.5  # Minimum vertical overlap ratio to merge adjacent regions
+    """
+    Configuration for UISeg.
+    
+    Attributes:
+        min_length (int): Minimum width/height of a region to be considered (in pixels)
+        max_area_ratio (float): Maximum allowed area ratio of a region relative to the image
+        merge_max_gap (int): Maximum horizontal gap (in pixels) to merge adjacent regions
+        merge_min_overlap_ratio (float): Minimum vertical overlap ratio to merge adjacent regions
+        adaptive_block_size (int): Block size for adaptive thresholding (must be odd)
+        adaptive_C (int): Constant subtracted from mean in adaptive thresholding
+        morph_kernel_size (int): Kernel size for morphological dilation (in pixels)
+        morph_iterations (int): Number of iterations for morphological dilation
+    """
+
+    min_length: int = 10
+    max_area_ratio: float = 0.4
+    merge_max_gap: int = 15
+    merge_min_overlap_ratio: float = 0.5
+
+    # internal
+    adaptive_block_size: int = 11
+    adaptive_C: int = 2
+    morph_kernel_size: int = 3
+    morph_iterations: int = 1
 
 
 class UISeg:
@@ -22,6 +38,8 @@ class UISeg:
     def process_image(self, image: np.ndarray, show: bool = False):
         # Convert to grayscale
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        gray = cv2.medianBlur(gray, 3)
+        gray = cv2.GaussianBlur(gray, (3, 3), 0)
 
         # Apply adaptive thresholding to get binary image
         binary = cv2.adaptiveThreshold(
