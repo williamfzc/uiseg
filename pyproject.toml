@@ -28,3 +28,7 @@ dev = [
     "black>=22.0",
     "isort>=5.0",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
